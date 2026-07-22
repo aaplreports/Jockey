@@ -105,7 +105,7 @@ if "target_email" not in st.session_state:
 # AUTHENTICATION UI GATE
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
-    st.title("🔐 Debtors Portal Access")
+    st.title("🔐 AAPL Sales Portal Access")
     st.subheader("Login Authentication")
     
     if not st.session_state.otp_sent:
