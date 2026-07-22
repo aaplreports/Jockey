@@ -8,7 +8,7 @@ import random
 # -------------------------------------------------------------
 # CONFIGURATION
 # -------------------------------------------------------------
-st.set_page_config(page_title="Debtors Portal", layout="wide")
+st.set_page_config(page_title="AAPL Sales Portal", layout="wide")
 
 SPREADSHEET_NAME = "AAPL-Jockey-Reporter"
 WORKSHEET_NAME = "OUTSTANDING"
@@ -48,7 +48,7 @@ def is_email_authorized(user_email):
 
 def send_otp_email(recipient_email, otp_code):
     """Sends 6-digit OTP using Gmail SMTP & 16-digit App Password."""
-    subject = "Your Login OTP - Debtors Portal"
+    subject = "Your Login OTP - Sales Portal"
     body = f"Your one-time authentication code is: {otp_code}\n\nThis code is valid for 5 minutes."
     
     msg = MIMEText(body)
