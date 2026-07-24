@@ -105,8 +105,6 @@ if "generated_otp" not in st.session_state:
 if "target_email" not in st.session_state:
     st.session_state.target_email = ""
 
-
-
 if not st.session_state.authenticated:
     saved_email = cookie_manager.get(cookie="auth_email")
     if saved_email and is_email_authorized(saved_email):
@@ -148,7 +146,7 @@ if not st.session_state.authenticated:
                     st.session_state.authenticated = True
 		    
 		    # --- ADD THESE 2 LINES TO SAVE COOKIE ---
-                    expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
+            expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
 		    cookie_manager.set(cookie="auth_email", val=st.session_state.target_email, expires_at=expiry)
                     
 		    st.success("Authenticated successfully!")
