@@ -31,6 +31,8 @@ SENDER_APP_PASSWORD = st.secrets.get("SENDER_APP_PASSWORD", "xxxx xxxx xxxx xxxx
 def generate_auth_token(email):
     """Generates a secure 16-character token from the user email."""
     secret = st.secrets.get("SENDER_APP_PASSWORD", "secret_salt_key")
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    payload = f"{email.lower().strip()}:{today_str}"
     return hmac.new(secret.encode(), email.lower().strip().encode(), hashlib.sha256).hexdigest()[:16]
     
 def get_gspread_client():
@@ -117,6 +119,17 @@ if "target_email" not in st.session_state:
 if not st.session_state.authenticated:
     url_email = st.query_params.get("user")
     url_token = st.query_params.get("token")
+
+    if url_email and url_token:
+        # Check if token matches TODAY'S generated token & email is authorized
+        if url_token == generate_auth_token(
+            url_email
+        ) and is_email_authorized(url_email):
+            st.session_state.authenticated = True
+            st.session_state.target_email = url_email
+        else:
+            # Token expired (from yesterday) or invalid -> wipe query params
+            st.query_params.clear()
     
     if url_email and url_token:
         # Verify token validity and sheet authorization
