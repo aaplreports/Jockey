@@ -27,6 +27,12 @@ SENDER_APP_PASSWORD = st.secrets.get("SENDER_APP_PASSWORD", "xxxx xxxx xxxx xxxx
 # -------------------------------------------------------------
 # GOOGLE SHEETS & AUTH HELPERS
 # -------------------------------------------------------------
+
+def generate_auth_token(email):
+    """Generates a secure 16-character token from the user email."""
+    secret = st.secrets.get("SENDER_APP_PASSWORD", "secret_salt_key")
+    return hmac.new(secret.encode(), email.lower().strip().encode(), hashlib.sha256).hexdigest()[:16]
+    
 def get_gspread_client():
     """Connects to Google Sheets using st.secrets TOML block."""
     creds_dict = dict(st.secrets["gcp_service_account"])
