@@ -4,11 +4,15 @@ import gspread
 import smtplib
 from email.mime.text import MIMEText
 import random
+import datetime
+import extra_streamlit_components as stx
 
 # -------------------------------------------------------------
 # CONFIGURATION
 # -------------------------------------------------------------
-st.set_page_config(page_title="AAPL Sales Portal", layout="wide")
+st.set_page_config(page_title="Debtors Portal", layout="wide")
+COOKIE_EXPIRY_DAYS = 7
+cookie_manager = stx.CookieManager(key="debtors_portal_cookie_mgr")
 
 SPREADSHEET_NAME = "AAPL-Jockey-Reporter"
 WORKSHEET_NAME = "OUTSTANDING"
@@ -48,7 +52,7 @@ def is_email_authorized(user_email):
 
 def send_otp_email(recipient_email, otp_code):
     """Sends 6-digit OTP using Gmail SMTP & 16-digit App Password."""
-    subject = "Your Login OTP - Sales Portal"
+    subject = "Your Login OTP - Debtors Portal"
     body = f"Your one-time authentication code is: {otp_code}\n\nThis code is valid for 5 minutes."
     
     msg = MIMEText(body)
@@ -101,6 +105,13 @@ if "generated_otp" not in st.session_state:
 if "target_email" not in st.session_state:
     st.session_state.target_email = ""
 
+
+
+if not st.session_state.authenticated:
+    saved_email = cookie_manager.get(cookie="auth_email")
+    if saved_email and is_email_authorized(saved_email):
+        st.session_state.authenticated = True
+        st.session_state.target_email = saved_email
 # -------------------------------------------------------------
 # AUTHENTICATION UI GATE
 # -------------------------------------------------------------
@@ -135,7 +146,12 @@ if not st.session_state.authenticated:
             if st.button("Verify OTP"):
                 if entered_otp == st.session_state.generated_otp:
                     st.session_state.authenticated = True
-                    st.success("Authenticated successfully!")
+		    
+		    # --- ADD THESE 2 LINES TO SAVE COOKIE ---
+                    expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
+		    cookie_manager.set(cookie="auth_email", val=st.session_state.target_email, expires_at=expiry)
+                    
+		    st.success("Authenticated successfully!")
                     st.rerun()
                 else:
                     st.error("Invalid OTP code. Please try again.")
@@ -155,6 +171,8 @@ else:
         st.caption(f"Logged in as: **{st.session_state.target_email}**")
     with top_col2:
         if st.button("Logout"):
+            cookie_manager.delete(cookie="auth_email")
+
             st.session_state.authenticated = False
             st.session_state.otp_sent = False
             st.session_state.generated_otp = None
