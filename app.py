@@ -146,6 +146,8 @@ if not st.session_state.authenticated:
                     st.session_state.authenticated = True
                     expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
                     cookie_manager.set(cookie="auth_email", val=st.session_state.target_email, expires_at=expiry)
+                    import time
+                    time.sleep(0.3)
                     st.success("Authenticated successfully!")
                     st.rerun()
                 else:
@@ -167,6 +169,8 @@ else:
     with top_col2:
         if st.button("Logout"):
             cookie_manager.delete(cookie="auth_email")
+            import time
+            time.sleep(0.3)
 
             st.session_state.authenticated = False
             st.session_state.otp_sent = False
