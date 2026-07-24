@@ -178,7 +178,8 @@ if not st.session_state.authenticated:
                 if entered_otp == st.session_state.generated_otp:
                     st.session_state.authenticated = True
                     # Set expiry timestamp to 24 hours (86400 seconds) from now
-                    exp_ts = int(time.time()) + 86400
+                    #exp_ts = int(time.time()) + 86400
+                    exp_ts = int(time.time()) + 30
                     token = generate_auth_token(
                         st.session_state.target_email, exp_ts
                     )
