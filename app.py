@@ -146,8 +146,8 @@ if not st.session_state.authenticated:
                     st.session_state.authenticated = True
 		    
 		    # --- ADD THESE 2 LINES TO SAVE COOKIE ---
-            expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
-		    cookie_manager.set(cookie="auth_email", val=st.session_state.target_email, expires_at=expiry)
+					expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
+					cookie_manager.set(cookie="auth_email", val=st.session_state.target_email, expires_at=expiry)
                     
 		    st.success("Authenticated successfully!")
                     st.rerun()
