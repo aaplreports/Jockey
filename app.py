@@ -144,8 +144,8 @@ if not st.session_state.authenticated:
             if st.button("Verify OTP"):
                 if entered_otp == st.session_state.generated_otp:
                     st.session_state.authenticated = True
-					expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
-					cookie_manager.set(cookie="auth_email", val=st.session_state.target_email, expires_at=expiry)
+                    expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
+                    cookie_manager.set(cookie="auth_email", val=st.session_state.target_email, expires_at=expiry)
                     st.success("Authenticated successfully!")
                     st.rerun()
                 else:
