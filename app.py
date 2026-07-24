@@ -29,7 +29,7 @@ SENDER_APP_PASSWORD = st.secrets.get("SENDER_APP_PASSWORD", "xxxx xxxx xxxx xxxx
 # GOOGLE SHEETS & AUTH HELPERS
 # -------------------------------------------------------------
 
-def generate_auth_token(email):
+def generate_auth_token(email,expiry_timestamp):
     """Generates a secure 16-character token from the user email."""
     secret = st.secrets.get("SENDER_APP_PASSWORD", "secret_salt_key")
     payload = f"{email.lower().strip()}:{expiry_timestamp}"
