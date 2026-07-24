@@ -6,6 +6,8 @@ from email.mime.text import MIMEText
 import random
 import datetime
 import extra_streamlit_components as stx
+import hmac
+import hashlib
 
 # -------------------------------------------------------------
 # CONFIGURATION
@@ -105,11 +107,16 @@ if "generated_otp" not in st.session_state:
 if "target_email" not in st.session_state:
     st.session_state.target_email = ""
 
+# --- AUTO-LOGIN VIA URL QUERY PARAMS ---
 if not st.session_state.authenticated:
-    saved_email = cookie_manager.get(cookie="auth_email")
-    if saved_email and is_email_authorized(saved_email):
-        st.session_state.authenticated = True
-        st.session_state.target_email = saved_email
+    url_email = st.query_params.get("user")
+    url_token = st.query_params.get("token")
+    
+    if url_email and url_token:
+        # Verify token validity and sheet authorization
+        if url_token == generate_auth_token(url_email) and is_email_authorized(url_email):
+            st.session_state.authenticated = True
+            st.session_state.target_email = url_email
 # -------------------------------------------------------------
 # AUTHENTICATION UI GATE
 # -------------------------------------------------------------
@@ -144,10 +151,9 @@ if not st.session_state.authenticated:
             if st.button("Verify OTP"):
                 if entered_otp == st.session_state.generated_otp:
                     st.session_state.authenticated = True
-                    expiry = datetime.datetime.now() + datetime.timedelta(days=COOKIE_EXPIRY_DAYS)
-                    cookie_manager.set(cookie="auth_email", val=st.session_state.target_email, expires_at=expiry)
-                    import time
-                    time.sleep(0.3)
+                    # --- SAVE SESSION TO URL PARAMS ---
+                    st.query_params["user"] = st.session_state.target_email
+                    st.query_params["token"] = generate_auth_token(st.session_state.target_email)
                     st.success("Authenticated successfully!")
                     st.rerun()
                 else:
@@ -168,9 +174,8 @@ else:
         st.caption(f"Logged in as: **{st.session_state.target_email}**")
     with top_col2:
         if st.button("Logout"):
-            cookie_manager.delete(cookie="auth_email")
-            import time
-            time.sleep(0.3)
+            # --- CLEAR URL PARAMS ---
+            st.query_params.clear()
 
             st.session_state.authenticated = False
             st.session_state.otp_sent = False
