@@ -13,8 +13,8 @@ import time
 # CONFIGURATION
 # -------------------------------------------------------------
 st.set_page_config(page_title="Debtors Portal", layout="wide")
-COOKIE_EXPIRY_DAYS = 7
-cookie_manager = stx.CookieManager(key="debtors_portal_cookie_mgr")
+#COOKIE_EXPIRY_DAYS = 7
+#cookie_manager = stx.CookieManager(key="debtors_portal_cookie_mgr")
 
 SPREADSHEET_NAME = "AAPL-Jockey-Reporter"
 WORKSHEET_NAME = "OUTSTANDING"
