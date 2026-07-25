@@ -5,7 +5,6 @@ import smtplib
 from email.mime.text import MIMEText
 import random
 import datetime
-import extra_streamlit_components as stx
 import hmac
 import hashlib
 import time
