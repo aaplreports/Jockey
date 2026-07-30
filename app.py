@@ -16,7 +16,7 @@ from google.oauth2.service_account import Credentials
 # 1. PAGE & BRANDING CONFIGURATION
 # -------------------------------------------------------------
 st.set_page_config(
-    page_title="AAPL Sales & Operations Portal",
+    page_title="AAPL Sales Reporting Portal",
     page_icon="\U0001F4CA",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -141,7 +141,7 @@ def format_inr(val):
 
 
 def sort_jc_months(months_list):
-    """Sorts JC Month strings chronologically from M1 to M13."""
+    """Sorts JC Month strings chronologically from M13 to M1."""
     def parse_m(m):
         m_str = str(m).strip().upper()
         if m_str.startswith("M") and m_str[1:].isdigit():
