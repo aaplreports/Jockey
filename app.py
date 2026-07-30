@@ -148,7 +148,7 @@ def sort_jc_months(months_list):
             return int(m_str[1:])
         return 999
 
-    return sorted([m for m in set(months_list) if str(m).strip() != ""], key=parse_m)
+    return sorted([m for m in set(months_list) if str(m).strip() != ""], key=parse_m, reverse=True)
 
 
 # -------------------------------------------------------------
