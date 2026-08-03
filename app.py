@@ -489,17 +489,35 @@ else:
         st.divider()
 
         # GRAPH DOWN
-        st.subheader(f"\U0001F4C8 Performance Chart ({selected_jc})")
+        st.subheader("📈 Journey Cycle Performance Trend (Target vs. Achievement)")
 
-        fig_perf = px.bar(
-            df_jc_curr,
-            x="Division",
-            y=["Target_Pcs", "Achv_Pcs", "Balance_Pcs"],
-            barmode="group",
-            labels={"value": "Units (Pcs)", "variable": "Status"},
-            color_discrete_sequence=["#0d6efd", "#198754", "#dc3545"],
-        )
-        st.plotly_chart(fig_perf, use_container_width=True)
+        if not df_jc.empty:
+            # Group totals across all JC Months using existing app data
+            df_jc_trend = df_jc.groupby("JC_Month", as_index=False)[["Target_Pcs", "Achv_Pcs"]].sum()
+
+            # Sort chronologically (M1, M2, M3, ...)
+            df_jc_trend["_order"] = df_jc_trend["JC_Month"].apply(
+                lambda x: int(str(x).replace("M", "")) if str(x).startswith("M") and str(x)[1:].isdigit() else 999
+            )
+            df_jc_trend = df_jc_trend.sort_values("_order").drop(columns=["_order"])
+
+            fig_perf = px.bar(
+                df_jc_trend,
+                x="JC_Month",
+                y=["Target_Pcs", "Achv_Pcs"],
+                barmode="group",
+                labels={
+                    "value": "Units (Pcs)",
+                    "variable": "Metrics",
+                    "JC_Month": "Journey Cycle Month"
+                },
+                color_discrete_sequence=["#0d6efd", "#198754"],
+            )
+            
+            # Rename legend items for cleaner display
+            fig_perf.for_each_trace(lambda t: t.update(name={"Target_Pcs": "Target (Pcs)", "Achv_Pcs": "Achieved (Pcs)"}[t.name]))
+            
+            st.plotly_chart(fig_perf, use_container_width=True)
 
         if is_admin_or_mgr:
             st.divider()
