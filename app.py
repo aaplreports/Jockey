@@ -501,6 +501,12 @@ else:
             )
             df_jc_trend = df_jc_trend.sort_values("_order").drop(columns=["_order"])
 
+            # Calculate Achievement Percentage for each JC
+            df_jc_trend["Achv_Pct"] = df_jc_trend.apply(
+                lambda r: f"{(r['Achv_Pcs'] / r['Target_Pcs'] * 100):.1f}%" if r["Target_Pcs"] > 0 else "0.0%",
+                axis=1
+            )
+
             fig_perf = px.bar(
                 df_jc_trend,
                 x="JC_Month",
@@ -513,10 +519,16 @@ else:
                 },
                 color_discrete_sequence=["#0d6efd", "#198754"],
             )
-            
-            # Rename legend items for cleaner display
-            fig_perf.for_each_trace(lambda t: t.update(name={"Target_Pcs": "Target (Pcs)", "Achv_Pcs": "Achieved (Pcs)"}[t.name]))
-            
+
+            # Apply labels specifically to the Achieved bars
+            for trace in fig_perf.data:
+                if trace.name == "Target_Pcs":
+                    trace.name = "Target (Pcs)"
+                elif trace.name == "Achv_Pcs":
+                    trace.name = "Achieved (Pcs)"
+                    trace.text = df_jc_trend["Achv_Pct"]
+                    trace.textposition = "auto"
+
             st.plotly_chart(fig_perf, use_container_width=True)
 
         if is_admin_or_mgr:
