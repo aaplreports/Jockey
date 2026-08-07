@@ -298,9 +298,13 @@ def send_outstanding_pdf_email(recipient_email, party_name, pdf_bytes):
 # -------------------------------------------------------------
 @st.cache_data(ttl=300)
 def load_all_portal_data():
-    """Loads all worksheets from Google Sheets into DataFrames."""
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
+    """Loads all worksheets from Google Sheets into DataFrames safely."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+    except Exception as e:
+        st.error(f"Failed to connect to Google Sheets: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     # 1. Outstanding Data
     try:
@@ -324,7 +328,6 @@ def load_all_portal_data():
     try:
         ws_jc = sh.worksheet(WORKSHEET_JC).get_all_records()
         df_jc = pd.DataFrame(ws_jc)
-        
         if not df_jc.empty:
             df_jc.columns = df_jc.columns.astype(str).str.strip()
             col_map = {
@@ -345,33 +348,51 @@ def load_all_portal_data():
     except Exception:
         df_inv = pd.DataFrame()
 
-    # 4. Full Granular Stock Data
+    # 4. Full Granular Stock Data (Skip title banner & deduplicate headers)
     try:
-        ws_stock = sh.worksheet(WORKSHEET_STOCK).get_all_values()
-        if ws_stock and len(ws_stock) > 1:
-            # Find the actual header row (skip title rows like "Stock Balance As On Date Report")
+        ws_stock_raw = sh.worksheet(WORKSHEET_STOCK).get_all_values()
+        if ws_stock_raw and len(ws_stock_raw) > 1:
+            # Find the actual table header row (skipping title banners)
             header_idx = 0
-            for i, row in enumerate(ws_stock[:5]):  # Scan first 5 rows
-                row_str = " ".join([str(c) for c in row])
-                # If row contains multiple columns and isn't the report title header
-                if len([c for c in row if str(c).strip()]) > 2 and "Stock Balance As On Date" not in row_str:
+            for i, row in enumerate(ws_stock_raw[:10]):
+                row_str = " ".join([str(c) for c in row]).lower()
+                if len([c for c in row if str(c).strip()]) > 2 and "stock balance as on date" not in row_str:
                     header_idx = i
                     break
 
-            # Set real headers and create DataFrame from rows beneath it
-            headers = [str(c).strip() if str(c).strip() != "" else f"Col_{idx}" for idx, c in enumerate(ws_stock[header_idx])]
-            data_rows = ws_stock[header_idx + 1:]
-            
-            df_stock = pd.DataFrame(data_rows, columns=headers)
-            
-            # Remove completely blank columns/rows if any
-            df_stock = df_stock.loc[:, ~df_stock.columns.str.startswith("Col_")]
-            df_stock = df_stock.dropna(how="all")
+            raw_headers = ws_stock_raw[header_idx]
+            data_rows = ws_stock_raw[header_idx + 1:]
+
+            # Deduplicate and clean column header names
+            clean_headers = []
+            seen_counts = {}
+            for idx, c in enumerate(raw_headers):
+                val = str(c).strip()
+                if not val or val.startswith("Unnamed:"):
+                    val = f"Col_{idx+1}"
+                
+                if val in seen_counts:
+                    seen_counts[val] += 1
+                    clean_headers.append(f"{val}_{seen_counts[val]}")
+                else:
+                    seen_counts[val] = 0
+                    clean_headers.append(val)
+
+            df_stock = pd.DataFrame(data_rows, columns=clean_headers)
+
+            # Keep only real columns (dropping filler Col_X headers)
+            valid_cols = [c for c in df_stock.columns if not c.startswith("Col_")]
+            if valid_cols:
+                df_stock = df_stock[valid_cols]
+
+            # Remove blank rows
+            df_stock = df_stock.replace("", pd.NA).dropna(how="all").fillna("")
         else:
             df_stock = pd.DataFrame()
-    except Exception as e:
+    except Exception:
         df_stock = pd.DataFrame()
 
+    return df_out, df_jc, df_inv, df_stock
 # -------------------------------------------------------------
 # 4. SESSION STATE MANAGEMENT & AUTO-LOGIN GATE
 # -------------------------------------------------------------
