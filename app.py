@@ -347,13 +347,30 @@ def load_all_portal_data():
 
     # 4. Full Granular Stock Data
     try:
-        ws_stock = sh.worksheet(WORKSHEET_STOCK).get_all_records()
-        df_stock = pd.DataFrame(ws_stock)
-    except Exception:
+        ws_stock = sh.worksheet(WORKSHEET_STOCK).get_all_values()
+        if ws_stock and len(ws_stock) > 1:
+            # Find the actual header row (skip title rows like "Stock Balance As On Date Report")
+            header_idx = 0
+            for i, row in enumerate(ws_stock[:5]):  # Scan first 5 rows
+                row_str = " ".join([str(c) for c in row])
+                # If row contains multiple columns and isn't the report title header
+                if len([c for c in row if str(c).strip()]) > 2 and "Stock Balance As On Date" not in row_str:
+                    header_idx = i
+                    break
+
+            # Set real headers and create DataFrame from rows beneath it
+            headers = [str(c).strip() if str(c).strip() != "" else f"Col_{idx}" for idx, c in enumerate(ws_stock[header_idx])]
+            data_rows = ws_stock[header_idx + 1:]
+            
+            df_stock = pd.DataFrame(data_rows, columns=headers)
+            
+            # Remove completely blank columns/rows if any
+            df_stock = df_stock.loc[:, ~df_stock.columns.str.startswith("Col_")]
+            df_stock = df_stock.dropna(how="all")
+        else:
+            df_stock = pd.DataFrame()
+    except Exception as e:
         df_stock = pd.DataFrame()
-
-    return df_out, df_jc, df_inv, df_stock
-
 
 # -------------------------------------------------------------
 # 4. SESSION STATE MANAGEMENT & AUTO-LOGIN GATE
@@ -875,26 +892,16 @@ else:
 
         if not df_stock.empty and len(df_stock.columns) >= 2:
             df_stk = df_stock.copy()
-
             df_stk.columns = [str(col).strip() for col in df_stk.columns]
 
-            # Extract Division Tag from Column 2 (Index 1)
+            # Dynamic Division filter (extracts last 3 chars or division tag)
             col_2_name = df_stk.columns[1]
-            df_stk["_Division_Tag"] = (
-                df_stk[col_2_name].astype(str).str.strip().str[-3:]
-            )
-
-            # Rename Column 10 (Index 9) to 'MRP'
-            if len(df_stk.columns) >= 10:
-                col_10_name = df_stk.columns[9]
-                df_stk = df_stk.rename(columns={col_10_name: "MRP"})
+            df_stk["_Division_Tag"] = df_stk[col_2_name].astype(str).str.strip().str[-3:]
 
             col_search, col_div = st.columns([2, 1])
 
             with col_div:
-                div_list = sorted(
-                    [d for d in df_stk["_Division_Tag"].unique() if str(d).strip() != ""]
-                )
+                div_list = sorted([d for d in df_stk["_Division_Tag"].unique() if str(d).strip() != ""])
                 div_options = ["All Divisions"] + div_list
                 selected_stock_div = st.selectbox("Filter Division:", div_options)
 
@@ -903,9 +910,7 @@ else:
 
             filtered_stock = df_stk.copy()
             if selected_stock_div != "All Divisions":
-                filtered_stock = filtered_stock[
-                    filtered_stock["_Division_Tag"] == selected_stock_div
-                ]
+                filtered_stock = filtered_stock[filtered_stock["_Division_Tag"] == selected_stock_div]
 
             if search_query:
                 mask = filtered_stock.astype(str).apply(
@@ -914,42 +919,33 @@ else:
                 )
                 filtered_stock = filtered_stock[mask]
 
-            # Exclude Columns 1, 2, 3, 11, 13, 14 (indices 0, 1, 2, 10, 12, 13)
-            exclude_indices = [0, 1, 2, 10, 12, 13]
-            cols_to_drop = [
-                df_stock.columns[i]
-                for i in exclude_indices
-                if i < len(df_stock.columns)
-            ]
+            # Clean helper column before displaying
+            display_stock = filtered_stock.drop(columns=["_Division_Tag"], errors="ignore")
 
-            display_stock = filtered_stock.drop(
-                columns=cols_to_drop + ["_Division_Tag"], errors="ignore"
-            )
-
-            # Excel Download Button for Stock
+            # Excel Download & Count Bar
             stock_col_left, stock_col_right = st.columns([3, 1])
             with stock_col_left:
-                st.caption(f"Displaying {len(display_stock)} stock items")
+                st.caption(f"Displaying **{len(display_stock)}** stock items")
             with stock_col_right:
-                output_excel = io.BytesIO()
-                with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
-                    display_stock.to_excel(writer, index=False, sheet_name="Stock_Details")
-                excel_bytes = output_excel.getvalue()
+                if OPENPYXL_AVAILABLE:
+                    output_excel = io.BytesIO()
+                    with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
+                        display_stock.to_excel(writer, index=False, sheet_name="Stock_Details")
+                    excel_bytes = output_excel.getvalue()
 
-                st.download_button(
-                    label="📥 Download Excel (.xlsx)",
-                    data=excel_bytes,
-                    file_name=f"Stock_Details_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
+                    st.download_button(
+                        label="📥 Download Excel (.xlsx)",
+                        data=excel_bytes,
+                        file_name=f"Stock_Details_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                    )
+                else:
+                    st.error("Add `openpyxl` to `requirements.txt` for Excel downloads.")
 
             st.dataframe(display_stock, use_container_width=True, hide_index=True)
         else:
-            st.warning(
-                "Granular stock sheet (`STOCK`) is empty or does not contain enough columns."
-            )
-
+            st.warning("Granular stock sheet (`STOCK`) is empty or missing data.")
     # =========================================================
     # MENU VIEW 5: INVESTMENT BREAKDOWN
     # =========================================================
