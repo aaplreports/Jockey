@@ -948,7 +948,7 @@ else:
             with stock_col_left:
                 st.caption(f"Displaying **{len(display_stock)}** stock items")
             with stock_col_right:
-                if OPENPYXL_AVAILABLE:
+                try:
                     output_excel = io.BytesIO()
                     with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
                         display_stock.to_excel(writer, index=False, sheet_name="Stock_Details")
@@ -961,6 +961,8 @@ else:
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
                     )
+                except ModuleNotFoundError:
+                    st.error("⚠️ `openpyxl` is missing. Please add `openpyxl` to your `requirements.txt` file.")    
                 else:
                     st.error("Add `openpyxl` to `requirements.txt` for Excel downloads.")
 
