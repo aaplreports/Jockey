@@ -915,8 +915,11 @@ else:
             df_stk = df_stock.copy()
             df_stk.columns = [str(col).strip() for col in df_stk.columns]
 
-            # Dynamic Division filter (extracts last 3 chars or division tag)
-            col_2_name = df_stk.columns[1]
+            # 1. Define strictly the 4 requested columns
+            target_columns = ["ItemDesc", "Size", "BatchNo", "CurBalQty"]
+
+            # 2. Division Filter Setup (computed before filtering columns)
+            col_2_name = df_stk.columns[1] if len(df_stk.columns) > 1 else df_stk.columns[0]
             df_stk["_Division_Tag"] = df_stk[col_2_name].astype(str).str.strip().str[-3:]
 
             col_search, col_div = st.columns([2, 1])
@@ -927,7 +930,7 @@ else:
                 selected_stock_div = st.selectbox("Filter Division:", div_options)
 
             with col_search:
-                search_query = st.text_input("🔍 Search Stock by Item Name / Code:")
+                search_query = st.text_input("🔍 Search Stock by Item Description / Batch / Size:")
 
             filtered_stock = df_stk.copy()
             if selected_stock_div != "All Divisions":
@@ -940,10 +943,21 @@ else:
                 )
                 filtered_stock = filtered_stock[mask]
 
-            # Clean helper column before displaying
-            display_stock = filtered_stock.drop(columns=["_Division_Tag"], errors="ignore")
+            # 3. Restrict table strictly to target columns (with case/space tolerance)
+            existing_cols = [c for c in target_columns if c in filtered_stock.columns]
+            
+            if not existing_cols:
+                # Case-insensitive fallback in case Google Sheets headers vary slightly
+                col_map = {c.lower().replace(" ", "").replace("_", ""): c for c in filtered_stock.columns}
+                existing_cols = [
+                    col_map[t.lower().replace(" ", "").replace("_", "")] 
+                    for t in target_columns 
+                    if t.lower().replace(" ", "").replace("_", "") in col_map
+                ]
 
-            # Excel Download & Count Bar
+            display_stock = filtered_stock[existing_cols] if existing_cols else filtered_stock.drop(columns=["_Division_Tag"], errors="ignore")
+
+            # 4. Excel Download & Count Bar
             stock_col_left, stock_col_right = st.columns([3, 1])
             with stock_col_left:
                 st.caption(f"Displaying **{len(display_stock)}** stock items")
@@ -961,10 +975,8 @@ else:
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
                     )
-                except ModuleNotFoundError:
-                    st.error("⚠️ `openpyxl` is missing. Please add `openpyxl` to your `requirements.txt` file.")    
-                else:
-                    st.error("Add `openpyxl` to `requirements.txt` for Excel downloads.")
+                except Exception as e:
+                    st.error(f"Unable to generate Excel file: {e}")
 
             st.dataframe(display_stock, use_container_width=True, hide_index=True)
         else:
