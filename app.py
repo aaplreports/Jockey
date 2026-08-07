@@ -181,41 +181,64 @@ def sort_jc_months(months_list):
 
 
 def generate_outstanding_pdf(party_name, total_pending, bill_count, age_summary_df, pending_bills_df):
-    """Generates a PDF statement in memory for the selected party outstanding."""
+    """Generates a PDF statement in memory for the selected party outstanding with executive summary blocks."""
     if not REPORTLAB_AVAILABLE:
         return None
 
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        rightMargin=30, 
+        leftMargin=30, 
+        topMargin=30, 
+        bottomMargin=30
+    )
     styles = getSampleStyleSheet()
     story = []
 
-    # Title
-    story.append(Paragraph("<b>AAPL Outstanding Debtors Statement</b>", styles['Title']))
+    # Title & Header Block
+    story.append(Paragraph("<b>AAPL OUTSTANDING DEBTORS STATEMENT</b>", styles['Title']))
     story.append(Spacer(1, 10))
     story.append(Paragraph(f"<b>Party Name:</b> {party_name}", styles['Heading2']))
-    story.append(Paragraph(f"<b>Total Pending Amount:</b> {format_inr(total_pending)} | <b>Total Pending Bills:</b> {bill_count}", styles['Normal']))
+    story.append(Paragraph(f"<b>Total Pending Amount:</b> {format_inr(total_pending)} | <b>Total Invoices:</b> {bill_count}", styles['Normal']))
     story.append(Spacer(1, 15))
 
-    # Age Summary Table
+    # Age Summary Visual Block
     story.append(Paragraph("<b>Age-wise Breakdown Summary</b>", styles['Heading3']))
-    age_table_data = [["Age Bucket", "Pending Amount"]]
-    for _, row in age_summary_df.iterrows():
-        age_table_data.append([str(row['_Age_Bucket']), format_inr(row['Pending Amount'])])
+    story.append(Spacer(1, 5))
 
-    t_age = Table(age_table_data, colWidths=[200, 200])
+    # Styled Table acting as visual summary cards
+    age_table_data = [["Age Bucket", "Pending Amount", "% of Total"]]
+    for _, row in age_summary_df.iterrows():
+        amt = row['Pending Amount']
+        pct = (amt / total_pending * 100) if total_pending > 0 else 0
+        age_table_data.append([
+            str(row['_Age_Bucket']), 
+            format_inr(amt),
+            f"{pct:.1f}%"
+        ])
+
+    t_age = Table(age_table_data, colWidths=[180, 180, 140])
     t_age.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0d6efd")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        # Highlight 90+ Days Bucket in light red if non-zero
+        ('BACKGROUND', (0, 4), (-1, 4), colors.HexColor("#f8d7da")),
+        ('TEXTCOLOR', (0, 4), (-1, 4), colors.HexColor("#721c24")),
     ]))
     story.append(t_age)
-    story.append(Spacer(1, 15))
+    story.append(Spacer(1, 20))
 
     # Detailed Pending Bills Table
     story.append(Paragraph("<b>Detailed Pending Invoices</b>", styles['Heading3']))
+    story.append(Spacer(1, 5))
+    
     display_cols = [c for c in pending_bills_df.columns if not c.startswith('_')]
     bill_table_data = [display_cols]
 
@@ -233,18 +256,19 @@ def generate_outstanding_pdf(party_name, total_pending, bill_count, age_summary_
     col_width = 500 / len(display_cols) if display_cols else 100
     t_bills = Table(bill_table_data, colWidths=[col_width] * len(display_cols))
     t_bills.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6c757d")),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#495057")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#dee2e6")),
         ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(t_bills)
 
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
-
 
 def send_outstanding_pdf_email(recipient_email, party_name, pdf_bytes):
     """Sends the generated Outstanding PDF statement via Email."""
