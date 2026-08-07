@@ -1,25 +1,54 @@
 import datetime
 import hashlib
 import hmac
+import io
 import os
 import random
 import smtplib
 import time
+import urllib.parse
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
 import gspread
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
+# ReportLab for PDF Generation
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
 # -------------------------------------------------------------
 # 1. PAGE & BRANDING CONFIGURATION
 # -------------------------------------------------------------
 st.set_page_config(
     page_title="AAPL Sales Reporting Portal",
-    page_icon="\U0001F4CA",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
+)
+
+# Custom CSS to hide table & chart hover toolbars (zoom, resize, download CSV, etc.)
+st.markdown(
+    """
+    <style>
+    /* Hide Streamlit element toolbars (Dataframe hover icons, fullscreen buttons) */
+    [data-testid="stElementToolbar"] {
+        display: none !important;
+    }
+    </style>
+""",
+    unsafe_allow_html=True,
 )
 
 SPREADSHEET_NAME = "AAPL-Jockey-Reporter"
@@ -134,10 +163,10 @@ def format_inr(val):
             s = s[:-2]
         groups.reverse()
         formatted_int = ",".join(groups + [r]) if groups else r
-        res = f"\u20b9{formatted_int}.{d[0]}"
+        res = f"₹{formatted_int}.{d[0]}"
         return f"-{res}" if is_neg else res
     except Exception:
-        return f"\u20b9{val}"
+        return f"₹{val}"
 
 
 def sort_jc_months(months_list):
@@ -149,6 +178,95 @@ def sort_jc_months(months_list):
         return 999
 
     return sorted([m for m in set(months_list) if str(m).strip() != ""], key=parse_m, reverse=True)
+
+
+def generate_outstanding_pdf(party_name, total_pending, bill_count, age_summary_df, pending_bills_df):
+    """Generates a PDF statement in memory for the selected party outstanding."""
+    if not REPORTLAB_AVAILABLE:
+        return None
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Title
+    story.append(Paragraph("<b>AAPL Outstanding Debtors Statement</b>", styles['Title']))
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(f"<b>Party Name:</b> {party_name}", styles['Heading2']))
+    story.append(Paragraph(f"<b>Total Pending Amount:</b> {format_inr(total_pending)} | <b>Total Pending Bills:</b> {bill_count}", styles['Normal']))
+    story.append(Spacer(1, 15))
+
+    # Age Summary Table
+    story.append(Paragraph("<b>Age-wise Breakdown Summary</b>", styles['Heading3']))
+    age_table_data = [["Age Bucket", "Pending Amount"]]
+    for _, row in age_summary_df.iterrows():
+        age_table_data.append([str(row['_Age_Bucket']), format_inr(row['Pending Amount'])])
+
+    t_age = Table(age_table_data, colWidths=[200, 200])
+    t_age.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0d6efd")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+    ]))
+    story.append(t_age)
+    story.append(Spacer(1, 15))
+
+    # Detailed Pending Bills Table
+    story.append(Paragraph("<b>Detailed Pending Invoices</b>", styles['Heading3']))
+    display_cols = [c for c in pending_bills_df.columns if not c.startswith('_')]
+    bill_table_data = [display_cols]
+
+    for _, r in pending_bills_df.iterrows():
+        row_vals = []
+        for c in display_cols:
+            val = r[c]
+            if isinstance(val, pd.Timestamp):
+                val = val.strftime('%d-%m-%Y')
+            elif c == 'Pending Amount':
+                val = format_inr(val)
+            row_vals.append(str(val))
+        bill_table_data.append(row_vals)
+
+    col_width = 500 / len(display_cols) if display_cols else 100
+    t_bills = Table(bill_table_data, colWidths=[col_width] * len(display_cols))
+    t_bills.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#6c757d")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(t_bills)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def send_outstanding_pdf_email(recipient_email, party_name, pdf_bytes):
+    """Sends the generated Outstanding PDF statement via Email."""
+    msg = MIMEMultipart()
+    msg['Subject'] = f"Outstanding Statement - {party_name}"
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = recipient_email
+
+    body = f"Dear Team,\n\nPlease find attached the latest Outstanding Debtors Statement for {party_name}.\n\nRegards,\nAAPL Sales Portal"
+    msg.attach(MIMEText(body, 'plain'))
+
+    part = MIMEBase('application', 'octet-stream')
+    part.set_payload(pdf_bytes)
+    encoders.encode_base64(part)
+    clean_party = "".join(c for c in party_name if c.isalnum() or c in (' ', '_', '-')).rstrip()
+    part.add_header('Content-Disposition', f'attachment; filename="Outstanding_{clean_party}.pdf"')
+    msg.attach(part)
+
+    clean_password = SENDER_APP_PASSWORD.replace(" ", "")
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(SENDER_EMAIL, clean_password)
+        server.sendmail(SENDER_EMAIL, recipient_email, msg.as_string())
 
 
 # -------------------------------------------------------------
@@ -256,7 +374,7 @@ if not st.session_state.authenticated:
 # 5. AUTHENTICATION UI GATE (LOGIN PAGE)
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
-    st.title("\U0001F511 AAPL Sales & Operations Portal")
+    st.title("🔑 AAPL Sales & Operations Portal")
     st.subheader("Login Authentication")
 
     if not st.session_state.otp_sent:
@@ -349,7 +467,7 @@ else:
     menu = st.sidebar.radio("Navigation Menu", options=menu_options)
 
     st.sidebar.divider()
-    if st.sidebar.button("\U0001F504 Refresh Data"):
+    if st.sidebar.button("🔄 Refresh Data"):
         st.cache_data.clear()
         st.rerun()
 
@@ -357,7 +475,7 @@ else:
     # MENU VIEW 1 & 2: UNIFIED DASHBOARD
     # =========================================================
     if menu in ["Executive Dashboard", "Achievement & Targets (Units)"]:
-        st.title("\U0001F4CA Sales Performance & Dashboard")
+        st.title("📊 Sales Performance & Dashboard")
 
         all_jcs = (
             sort_jc_months(df_jc["JC_Month"].tolist())
@@ -409,7 +527,7 @@ else:
         st.divider()
 
         # TABLES AT TOP
-        st.subheader(f"\U0001F4CB Sales Performance Tables ({selected_jc})")
+        st.subheader(f"📋 Sales Performance Tables ({selected_jc})")
 
         col_left_tbl, col_right_tbl = st.columns([6, 4])
 
@@ -529,11 +647,11 @@ else:
                     trace.text = df_jc_trend["Achv_Pct"]
                     trace.textposition = "auto"
 
-            st.plotly_chart(fig_perf, use_container_width=True)
+            st.plotly_chart(fig_perf, use_container_width=True, config={'displayModeBar': False})
 
         if is_admin_or_mgr:
             st.divider()
-            st.subheader("\U0001F4BC Capital & Investment Master Breakdown")
+            st.subheader("💼 Capital & Investment Master Breakdown")
 
             if not df_inv.empty:
                 inv_cols = [
@@ -574,7 +692,7 @@ else:
     # MENU VIEW 3: OUTSTANDING DEBTORS
     # =========================================================
     elif menu == "Outstanding Debtors":
-        st.title("\U0001F4B8 Outstanding Debtors Portal")
+        st.title("💸 Outstanding Debtors Portal")
 
         if not df_out.empty and "Party Name" in df_out.columns:
             unique_parties = sorted(
@@ -651,7 +769,62 @@ else:
                     xaxis_title=None,
                     yaxis_title=None,
                 )
-                st.plotly_chart(fig_age, use_container_width=True)
+                st.plotly_chart(fig_age, use_container_width=True, config={'displayModeBar': False})
+
+            st.divider()
+
+            # --- WHATSAPP & EMAIL SHARING SECTION ---
+            st.subheader("📲 Share Statement via WhatsApp or Email")
+            share_col1, share_col2, share_col3 = st.columns(3)
+
+            # Generate PDF in memory
+            pdf_data = generate_outstanding_pdf(
+                selected_party, total_pending, bill_count, age_summary, filtered_df
+            )
+
+            with share_col1:
+                if pdf_data:
+                    clean_name = selected_party.replace(" ", "_")
+                    st.download_button(
+                        label="📄 Download PDF Statement",
+                        data=pdf_data,
+                        file_name=f"Outstanding_{clean_name}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+
+            with share_col2:
+                # WhatsApp Pre-filled Link
+                wa_msg = f"*AAPL Outstanding Statement*\n"
+                wa_msg += f"*Party:* {selected_party}\n"
+                wa_msg += f"*Total Pending:* {format_inr(total_pending)}\n"
+                wa_msg += f"*Pending Invoices:* {bill_count}\n\n"
+                wa_msg += "*Age Breakdown:*\n"
+                for _, r in age_summary.iterrows():
+                    wa_msg += f"• {r['_Age_Bucket']}: {format_inr(r['Pending Amount'])}\n"
+
+                encoded_wa = urllib.parse.quote(wa_msg)
+                wa_url = f"https://api.whatsapp.com/send?text={encoded_wa}"
+                st.markdown(
+                    f'<a href="{wa_url}" target="_blank" style="text-decoration:none;">'
+                    f'<button style="width:100%; height:38px; background-color:#25D366; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">'
+                    f'💬 Share on WhatsApp</button></a>',
+                    unsafe_allow_html=True,
+                )
+
+            with share_col3:
+                # Email PDF Modal / Input
+                with st.popover("📧 Email PDF Statement"):
+                    target_email_input = st.text_input("Recipient Email:", value="")
+                    if st.button("Send Email"):
+                        if target_email_input and pdf_data:
+                            with st.spinner("Sending Email..."):
+                                send_outstanding_pdf_email(target_email_input, selected_party, pdf_data)
+                                st.success(f"Statement emailed to {target_email_input}!")
+                        elif not pdf_data:
+                            st.error("ReportLab library missing for PDF generation. Run: pip install reportlab")
+                        else:
+                            st.warning("Please enter a valid email.")
 
             st.divider()
 
@@ -669,11 +842,12 @@ else:
             st.dataframe(display_df, use_container_width=True, hide_index=True)
         else:
             st.warning("No data found in OUTSTANDING sheet.")
+
     # =========================================================
     # MENU VIEW 4: GRANULAR STOCK DETAILS
     # =========================================================
     elif menu == "Stock Details":
-        st.title("\U0001F4E6 Granular Inventory & Stock Details")
+        st.title("📦 Granular Inventory & Stock Details")
 
         if not df_stock.empty and len(df_stock.columns) >= 2:
             df_stk = df_stock.copy()
@@ -701,7 +875,7 @@ else:
                 selected_stock_div = st.selectbox("Filter Division:", div_options)
 
             with col_search:
-                search_query = st.text_input("\U0001F50D Search Stock by Item Name / Code:")
+                search_query = st.text_input("🔍 Search Stock by Item Name / Code:")
 
             filtered_stock = df_stk.copy()
             if selected_stock_div != "All Divisions":
@@ -727,7 +901,25 @@ else:
             display_stock = filtered_stock.drop(
                 columns=cols_to_drop + ["_Division_Tag"], errors="ignore"
             )
-            st.caption(f"Displaying {len(display_stock)} stock items")
+
+            # Excel Download Button for Stock
+            stock_col_left, stock_col_right = st.columns([3, 1])
+            with stock_col_left:
+                st.caption(f"Displaying {len(display_stock)} stock items")
+            with stock_col_right:
+                output_excel = io.BytesIO()
+                with pd.ExcelWriter(output_excel, engine="openpyxl") as writer:
+                    display_stock.to_excel(writer, index=False, sheet_name="Stock_Details")
+                excel_bytes = output_excel.getvalue()
+
+                st.download_button(
+                    label="📥 Download Excel (.xlsx)",
+                    data=excel_bytes,
+                    file_name=f"Stock_Details_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
+
             st.dataframe(display_stock, use_container_width=True, hide_index=True)
         else:
             st.warning(
@@ -738,7 +930,7 @@ else:
     # MENU VIEW 5: INVESTMENT BREAKDOWN
     # =========================================================
     elif menu == "Investment Breakdown":
-        st.title("\U0001F4BC Capital & Investment Master Breakdown")
+        st.title("💼 Capital & Investment Master Breakdown")
 
         if not df_inv.empty:
             tot_out = (
